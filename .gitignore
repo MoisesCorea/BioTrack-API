@@ -1,9 +1,8 @@
-/.phpunit.cache
 /node_modules
 /public/build
 /public/hot
-#/public/storage
-#/storage/*.key
+/public/storage
+/storage/*.key
 /vendor
 .env
 .env.backup
@@ -17,4 +16,11 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
+/.phpunit.cache
+/.config
+.DS_Store
+storage/images/profiles/*
+!storage/images/profiles/.gitignore
+public/storage/images/profiles/*
+!public/storage/images/profiles/.gitignore
 
