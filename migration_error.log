@@ -1,0 +1,29 @@
+
+   INFO  Running migrations.  
+
+  2026_03_23_134000_create_justifications_table  1.81ms FAIL
+
+   Illuminate\Database\QueryException 
+
+  SQLSTATE[42S01]: Base table or view already exists: 1050 Table 'justifications' already exists (Connection: mysql, SQL: create table `justifications` (`id` bigint unsigned not null auto_increment primary key, `user_id` varchar(10) not null, `type` enum('Permiso', 'Incapacidad', 'Vacaciones', 'Otro') not null, `start_date` date not null, `end_date` date not null, `description` text null, `status` enum('Pendiente', 'Aprobado', 'Rechazado') not null default 'Pendiente', `evidence_path` varchar(255) null, `created_at` timestamp null, `updated_at` timestamp null) default character set utf8mb4 collate 'utf8mb4_unicode_ci')
+
+  at vendor/laravel/framework/src/Illuminate/Database/Connection.php:813
+    809▕                     $this->getName(), $query, $this->prepareBindings($bindings), $e
+    810▕                 );
+    811▕             }
+    812▕ 
+  ➜ 813▕             throw new QueryException(
+    814▕                 $this->getName(), $query, $this->prepareBindings($bindings), $e
+    815▕             );
+    816▕         }
+    817▕     }
+
+      [2m+9 vendor frames [22m
+
+  10  database/migrations/2026_03_23_134000_create_justifications_table.php:14
+      Illuminate\Support\Facades\Facade::__callStatic("create")
+      [2m+26 vendor frames [22m
+
+  37  artisan:13
+      Illuminate\Foundation\Application::handleCommand(Object(Symfony\Component\Console\Input\ArgvInput))
+
