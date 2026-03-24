@@ -28,15 +28,13 @@ Route::get('/logout', [AuthController::class, 'logout'])->middleware('auth:sanct
 
 
 //Reporte de asistencia
-Route::get('/reports/user', [AttendanceController::class, 'generateReportUser'])->middleware('verify.rol:Admin,Admin-1,Admin-2');
-Route::get('/reports/users', [AttendanceController::class, 'generateReportUsers'])->middleware('verify.rol:Admin,Admin-1,Admin-2');
-Route::get('/attendances', [AttendanceController::class, 'getDailyAttendace'])->middleware('verify.rol:Admin,Admin-1,Admin-2');
-
-
+Route::get('/reports/user', [AttendanceController::class, 'generateReportUser'])->middleware('can:view_reports');
+Route::get('/reports/users', [AttendanceController::class, 'generateReportUsers'])->middleware('can:view_reports');
+Route::get('/attendances', [AttendanceController::class, 'getDailyAttendace'])->middleware('can:view_reports');
 
 //CRUD admins
 Route::get('admins/{id}', [AdminController::class, 'show'])->middleware('auth:sanctum');
-Route::prefix('admins')->middleware('verify.rol:Admin')->group(function () {
+Route::prefix('admins')->middleware('can:manage_admins')->group(function () {
     Route::get('/', [AdminController::class, 'index']);
     Route::post('/', [AdminController::class, 'store']);
     Route::patch('/{id}', [AdminController::class, 'update']);
@@ -44,65 +42,68 @@ Route::prefix('admins')->middleware('verify.rol:Admin')->group(function () {
 });
 
 //CRUD roles
-Route::get('roles/', [RolesController::class, 'index'])->middleware('verify.rol:Admin'); 
-Route::get('roles/{id}', [RolesController::class, 'show'])->middleware('verify.rol:Admin'); 
+Route::get('roles/', [RolesController::class, 'index'])->middleware('can:view_roles'); 
+Route::get('roles/{id}', [RolesController::class, 'show'])->middleware('can:view_roles'); 
 
-Route::prefix('roles')->middleware('verify.rol:Admin')->group(function () {
+Route::prefix('roles')->middleware('can:manage_roles')->group(function () {
     Route::post('/', [RolesController::class, 'store']); 
     Route::patch('/{id}', [RolesController::class, 'update']); 
     Route::delete('/{id}', [RolesController::class, 'destroy']); 
 });
 
 //CRUD departmentos
+Route::get('departments', [DepartmentsController::class, 'index'])->middleware('can:view_departments'); 
+Route::get('departments/{id}', [DepartmentsController::class, 'show'])->middleware('can:view_departments');
 
-Route::get('departments', [DepartmentsController::class, 'index'])->middleware('verify.rol:Admin,Admin-1,Admin-2'); 
-Route::get('departments/{id}', [DepartmentsController::class, 'show'])->middleware('verify.rol:Admin,Admin-1,Admin-2');
-
-Route::prefix('departments')->middleware('verify.rol:Admin,Admin-1')->group(function () {
+Route::prefix('departments')->middleware('can:manage_departments')->group(function () {
     Route::post('/', [DepartmentsController::class, 'store']); 
     Route::patch('/{id}', [DepartmentsController::class, 'update']); 
     Route::delete('/{id}', [DepartmentsController::class, 'destroy']); 
 });
 
 //CRUD horarios
-
-Route::prefix('shifts')->middleware('verify.rol:Admin,Admin-1')->group(function () {
-    Route::get('/', [ShiftsController::class, 'index']); 
-    Route::post('/', [ShiftsController::class, 'store']); 
-    Route::get('/{id}', [ShiftsController::class, 'show']); 
-    Route::patch('/{id}', [ShiftsController::class, 'update']); 
-    Route::delete('/{id}', [ShiftsController::class, 'destroy']); 
+Route::prefix('shifts')->group(function () {
+    Route::get('/', [ShiftsController::class, 'index'])->middleware('can:view_shifts'); 
+    Route::post('/', [ShiftsController::class, 'store'])->middleware('can:manage_shifts'); 
+    Route::get('/{id}', [ShiftsController::class, 'show'])->middleware('can:view_shifts'); 
+    Route::patch('/{id}', [ShiftsController::class, 'update'])->middleware('can:manage_shifts'); 
+    Route::delete('/{id}', [ShiftsController::class, 'destroy'])->middleware('can:manage_shifts'); 
 });
 
 //CRUD eventos
-Route::get('events', [EventsController::class, 'index'])->middleware('verify.rol:Admin,Admin-1,Admin-2'); 
+Route::get('events', [EventsController::class, 'index'])->middleware('can:view_events'); 
 
-Route::prefix('events')->middleware('verify.rol:Admin,Admin-1')->group(function () {
-    Route::post('/', [EventsController::class, 'store']); 
-    Route::get('/{id}', [EventsController::class, 'show']); 
-    Route::patch('/{id}', [EventsController::class, 'update']); 
-    Route::patch('/{id}/status', [EventsController::class, 'updateStatus']); 
-    Route::patch('/{id}/daily-attendance', [EventsController::class, 'updateDailyAttendance']);
-    Route::delete('/{id}', [EventsController::class, 'destroy']);
+Route::prefix('events')->group(function () {
+    Route::get('/{id}', [EventsController::class, 'show'])->middleware('can:view_events'); 
+    Route::middleware('can:manage_events')->group(function() {
+        Route::post('/', [EventsController::class, 'store']); 
+        Route::patch('/{id}', [EventsController::class, 'update']); 
+        Route::patch('/{id}/status', [EventsController::class, 'updateStatus']); 
+        Route::patch('/{id}/daily-attendance', [EventsController::class, 'updateDailyAttendance']);
+        Route::delete('/{id}', [EventsController::class, 'destroy']);
+    });
 });
 
 //CRUD users
-Route::get('users', [UsersController::class, 'index'])->middleware('verify.rol:Admin,Admin-1,Admin-2'); 
-Route::get('users/{id}', [UsersController::class, 'show'])->middleware('verify.rol:Admin,Admin-1,Admin-2'); 
+Route::get('users', [UsersController::class, 'index'])->middleware('can:view_users'); 
+Route::get('users/{id}', [UsersController::class, 'show'])->middleware('can:view_users'); 
 
-Route::prefix('users')->middleware('verify.rol:Admin,Admin-1')->group(function () {
+Route::prefix('users')->middleware('can:manage_users')->group(function () {
     Route::post('/', [UsersController::class, 'store']); 
     Route::patch('/{id}', [UsersController::class, 'update']); 
     Route::delete('/{id}', [UsersController::class, 'destroy']); 
 });
 
 //Justificaciones
-Route::prefix('justifications')->middleware('verify.rol:Admin,Admin-1')->group(function () {
-    Route::get('/', [JustificationController::class, 'index']);
-    Route::post('/', [JustificationController::class, 'store']);
-    Route::get('/{id}', [JustificationController::class, 'show']);
-    Route::patch('/{id}/status', [JustificationController::class, 'updateStatus']);
-    Route::delete('/{id}', [JustificationController::class, 'destroy']);
+Route::prefix('justifications')->group(function() {
+    Route::get('/', [JustificationController::class, 'index'])->middleware('can:view_justifications');
+    Route::post('/', [JustificationController::class, 'store'])->middleware('can:view_justifications');
+    Route::get('/{id}', [JustificationController::class, 'show'])->middleware('can:view_justifications');
+    
+    Route::middleware('can:manage_justifications')->group(function() {
+        Route::patch('/{id}/status', [JustificationController::class, 'updateStatus']);
+        Route::delete('/{id}', [JustificationController::class, 'destroy']);
+    });
 });
 
 

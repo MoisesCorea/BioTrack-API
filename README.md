@@ -25,10 +25,10 @@ Sistema de gestión de asistencia basado en escaneo de códigos QR, construido c
 La API utiliza **Laravel Sanctum** para la autenticación y **Spatie Laravel Permission** para la gestión de roles y permisos.
 
 ### Roles y Permisos
-- **Sistema:** RBAC (Role-Based Access Control).
-- **Middleware:** `verify.rol:role1,role2,...`
+- **Sistema:** RBAC Granular (Role-Based Access Control) mediante Spatie.
+- **Middleware:** `can:nombre_permiso` (ej: `can:manage_users`).
 - **Roles principales:** `Admin`, `Admin-1`, `Admin-2`.
-- **Nuevas capacidades:** Ahora puedes asignar permisos granulares a cada administrador usando los métodos nativos de Spatie (`$user->givePermissionTo()`).
+- **Estandarización:** En lugar de hardcodear roles en las rutas, ahora usamos **permisos**. Puedes asignar o revocar capacidades a un rol desde la DB sin tocar el código.
 
 ### Endpoints de Autenticación
 | Método | Endpoint | Descripción |
@@ -82,10 +82,14 @@ Spatie maneja los roles internamente, pero el `RolesController` permite gestiona
 
 ---
 
-## 🛡️ Niveles de Acceso
-La API utiliza middleware de roles (`verify.rol`):
-- **Admin**: Acceso total.
-- **Admin-1 / Admin-2**: Acceso restringido a reportes y visualización según configuración.
+## 🛡️ Niveles de Acceso (Permisos)
+La API utiliza middleware de permisos nativo de Laravel (`can:`):
+- **view_reports**: Permite visualizar y generar reportes.
+- **manage_users**: Permite el CRUD completo de personal.
+- **manage_admins**: Acceso exclusivo para gestionar el staff administrativo.
+- **manage_justifications**: Permite aprobar o rechazar inasistencias.
+
+*Nota: El rol `Admin` posee automáticamente todos los permisos.*
 
 ---
 
