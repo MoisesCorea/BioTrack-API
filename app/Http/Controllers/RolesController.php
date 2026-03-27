@@ -10,12 +10,12 @@ class RolesController extends Controller
 {
     public function index()
     {
-        $roles = Roles::all();
+        $roles = Roles::with('permissions')->get();
         return $this->successResponse($roles);
     }
 
     public function show($id){
-        $rol = Roles::find($id);
+        $rol = Roles::with('permissions')->find($id);
 
         if (!$rol) {
             return $this->errorResponse('Role not found', 404);
@@ -32,6 +32,10 @@ class RolesController extends Controller
             'guard_name' => 'web'
         ]);
 
+        if ($request->has('permissions')) {
+            $rol->syncPermissions($request->permissions);
+        }
+
         return $this->successResponse($rol, 'Role created successfully', 201);
     }
 
@@ -46,6 +50,10 @@ class RolesController extends Controller
         $rol->name = $request->name;
         $rol->description =$request->description;
         $rol->save();
+
+        if ($request->has('permissions')) {
+            $rol->syncPermissions($request->permissions);
+        }
 
         return $this->successResponse($rol, 'Role updated successfully');
     }

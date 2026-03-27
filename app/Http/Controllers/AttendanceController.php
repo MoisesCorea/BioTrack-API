@@ -7,50 +7,56 @@ use Illuminate\Support\Facades\DB;
 use App\Models\Users;
 use App\Models\Events;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Validator;
 use App\Services\AttendanceReportService;
+use App\Http\Requests\AttendanceReportRequest;
+use App\Http\Requests\MassAttendanceReportRequest;
 
 class AttendanceController extends Controller
 {
     /**
-     * Registra el ingreso o egreso de asistencia de un empleado para el evento activo de la fecha actual.
+     * Registra el ingreso o egreso de asistencia de un empleado para el evento activo.
+     * Soporta turnos nocturnos mediante una ventana de 14 horas.
      */
     public function attachAttendance(Request $request, string $id)
     {
         $user = Users::find($id);
 
-        if (!$user) {
-            return $this->errorResponse('User not found', 404);
-        }
-
-        if ($user->status === "Inactivo") {
-            return $this->errorResponse('Inactive user cannot register attendance', 403);
-        }
+        if (!$user) return $this->errorResponse('User not found', 404);
+        if ($user->status === "Inactivo") return $this->errorResponse('User is inactive', 403);
 
         $active = Events::where('status', true)->first();
-        if (!$active) {
-            return $this->errorResponse('No active events found', 404);
+        if (!$active) return $this->errorResponse('No active events found', 404);
+
+        $now          = Carbon::now();
+        $fechaActual  = $now->format('Y-m-d');
+        $horaActual   = $now->format('H:i:s');
+
+        // Inteligencia para turnos nocturnos:
+        // Si el turno del empleado ESTÁ DISEÑADO para empezar en la tarde/noche (>= 12pm)
+        // pero él está escaneando su QR en la madrugada de hoy (< 12am)...
+        // Significa que viene llegando tarde a su turno de AYER. 
+        if ($user->shift) {
+            $shiftEntryHour = (int) Carbon::parse($user->shift->entry_time)->format('H');
+            if ($shiftEntryHour >= 12 && $now->hour < 12) {
+                $fechaActual = $now->copy()->subDay()->format('Y-m-d');
+            }
         }
 
-        $fechaActual = Carbon::now()->format('Y-m-d');
-        $horaActual = Carbon::now()->format('H:i:s');
-        $currentTime = Carbon::now();
+        // LÓGICA DE VENTANA: Buscamos una asistencia sin salida en las últimas 14 horas
+        // Esto soporta turnos nocturnos que cruzan la medianoche.
+        $query = $user->events()
+            ->wherePivot('event_id', $active->id)
+            ->wherePivotNull('finish_time')
+            ->wherePivot('attendance_date', '>=', $now->copy()->subHours(14)->format('Y-m-d'))
+            ->orderBy('pivot_entry_time', 'desc');
 
-        // Armar el cruce de asistencia de la base de datos
-        $query = $user->events()->wherePivot('attendance_date', $fechaActual);
-        
-        // Si el evento no es el generalizado (daily), lo buscamos directo en su ID específico
-        if (!$active->daily_attendance) {
-            $query->wherePivot('event_id', $active->id);
-        }
+        $openAttendance = $query->first();
 
-        $recentAttendance = $query->orderBy('entry_time', 'desc')->first();
-
-        // == REGLA 1: Si no hay asistencia hoy, marcar ENTRADA
-        if (!$recentAttendance) {
+        // CASO 1: No hay asistencia abierta → REGISTRAR ENTRADA
+        if (!$openAttendance) {
             try {
                 $user->events()->attach($active->id, [
-                    'entry_time' => $horaActual,
+                    'entry_time'      => $horaActual,
                     'attendance_date' => $fechaActual,
                 ]);
                 return $this->successResponse(null, 'Attendance entry registered successfully');
@@ -59,26 +65,23 @@ class AttendanceController extends Controller
             }
         }
 
-        // == REGLA 2: Si ya marcó, validar la tolerancia en minutos para decidir si puede marcar SALIDA
-        $entryTimePlusTolerance = Carbon::parse($recentAttendance->pivot->entry_time)->addMinutes($active->change_attendance);
+        // CASO 2: Hay asistencia abierta → Validar tolerancia y REGISTRAR SALIDA
+        $entryTimestamp = Carbon::parse(
+            $openAttendance->pivot->attendance_date . ' ' . $openAttendance->pivot->entry_time
+        );
 
-        if ($entryTimePlusTolerance->greaterThan($currentTime)) {
-            return $this->errorResponse('Attendance entry already registered', 409);
+        if ($entryTimestamp->diffInMinutes($now) < $active->change_attendance) {
+            return $this->errorResponse('Too soon to register exit. Please wait.', 409);
         }
 
-        if ($recentAttendance->pivot->finish_time) {
-            return $this->errorResponse('Attendance exit already registered', 409);
-        }
-
-        // == REGLA 3: Si se superó la tolerancia y no había salido, marcar SALIDA
         try {
             $user->events()
-                 ->wherePivot('attendance_date', $fechaActual)
-                 ->wherePivot('event_id', $recentAttendance->pivot->event_id)
-                 ->updateExistingPivot($recentAttendance->pivot->event_id, [
+                 ->wherePivot('attendance_date', $openAttendance->pivot->attendance_date)
+                 ->wherePivot('event_id', $active->id)
+                 ->updateExistingPivot($active->id, [
                      'finish_time' => $horaActual,
                  ]);
-          
+
             return $this->successResponse(null, 'Attendance exit registered successfully');
         } catch (\Exception $e) {
             return $this->errorResponse('Error finalizing attendance: ' . $e->getMessage(), 400);
@@ -86,68 +89,15 @@ class AttendanceController extends Controller
     }
 
     /**
-     * Genera un reporte detallado de un usuario único dado su nombre o apellido.
-     */
-    public function generateReportUser(\App\Http\Requests\AttendanceReportRequest $request)
-    {
-        $user = Users::where(DB::raw("CONCAT(name, ' ', last_name)"), $request->name)->first();
-       
-        if (!$user) {
-            return $this->errorResponse('User not found.', 404);
-        }
-
-        $event = Events::find($request->event_id);
-    
-        $startDate = Carbon::parse($request->initial_date)->startOfDay();
-        $endDate = Carbon::parse($request->end_date)->endOfDay();
-    
-        $attendances = $user->events()
-                            ->wherePivot('attendance_date', '>=', $startDate)
-                            ->wherePivot('attendance_date', '<=', $endDate)
-                            ->wherePivot('event_id', $event->id)
-                            ->orderBy('attendance_date')
-                            ->get();
-
-        // Delega la compilación a la capa Service
-        $fullAttendances = AttendanceReportService::buildReportCollection(
-            $attendances, 
-            $user->shift, 
-            $event->daily_attendance, 
-            $startDate, 
-            $endDate,
-            $user->id
-        );
-
-        $response = [
-            'user_name' => $user->name . ' ' . $user->last_name,
-            'shift_name' => $user->shift->name,
-            'event_name' => $event->name,
-            'department_name' => $user->department->name,
-            'daily_attendance' => $event->daily_attendance == 1 ? 'Si' : 'No',
-            'total_dedicated_hours' => $fullAttendances->sum('time_dedicated'),
-            'attendances' => $fullAttendances
-        ];
-
-        if ($event->daily_attendance == 1) {
-            $response['total_non_dedicated_time'] = $fullAttendances->sum('time_non_dedicated');
-        }
-
-        return $this->successResponse($response, 'Report generated successfully');
-    }
-
-    /**
-     * Obtiene el listado rápido de la asistencia general agrupada por el día en curso en el dashboard.
+     * Obtiene el listado de asistencias del día en curso para el dashboard.
      */
     public function getDailyAttendace()
     {
         $active = Events::where('status', true)->first();
-        if (!$active) {
-            return $this->errorResponse('No active events found', 400);
-        }
+        if (!$active) return $this->errorResponse('No active events found', 400);
 
         $fechaActual = Carbon::now()->format('Y-m-d');
 
-        // Obtener las asistencias del evento activo para la fecha actual
         $recentAttendance = $active->users()
             ->wherePivot('attendance_date', $fechaActual)
             ->orderBy('pivot_entry_time', 'desc')
@@ -155,60 +105,114 @@ class AttendanceController extends Controller
 
         $attendanceData = $recentAttendance->map(function ($user) {
             return [
-                'user_name' => $user->name. ' '. $user->last_name ,
-                'entry_time' => $user->pivot->entry_time,
-                'finish_time' => $user->pivot->finish_time,
+                'user_name'       => $user->name . ' ' . $user->last_name,
+                'entry_time'      => $user->pivot->entry_time,
+                'finish_time'     => $user->pivot->finish_time,
                 'attendance_date' => $user->pivot->attendance_date,
             ];
         });
 
         return $this->successResponse([
-            'attendance' => $attendanceData,
-            'total_records' => $attendanceData->count(),
-            'active_users_count' => Users::where('status', 'Activo')->count(),
-            'inactive_users_count' => Users::where('status', 'Inactivo')->count()
+            'attendance'          => $attendanceData,
+            'total_records'       => $attendanceData->count(),
+            'active_users_count'  => Users::where('status', 'Activo')->count(),
+            'inactive_users_count'=> Users::where('status', 'Inactivo')->count(),
         ], 'Attendances retrieved successfully');
     }
 
     /**
-     * Genera un reporte masivo departamental sobre los usuarios que pasaron su umbral de tolerancia.
+     * Reporte detallado de un usuario único (búsqueda por nombre completo).
      */
-    public function generateReportUsers(\App\Http\Requests\MassAttendanceReportRequest $request)
+    public function generateReportUser(AttendanceReportRequest $request)
     {
-        $event = Events::find($request->event_id);
-        $startDate = Carbon::parse($request->initial_date)->startOfDay();
-        $endDate = Carbon::parse($request->end_date)->endOfDay();
+        $user = Users::where(DB::raw("CONCAT(name, ' ', last_name)"), $request->name)
+                     ->with(['shift', 'department'])
+                     ->first();
 
-        // Optimizamos cargando usuarios con sus eventos (asistencias) filtrados por rango en una sola consulta
-        $usersQuery = Users::with(['shift', 'department', 'events' => function($query) use ($startDate, $endDate, $event) {
+        if (!$user) return $this->errorResponse('User not found.', 404);
+
+        $event     = Events::findOrFail($request->event_id);
+        $startDate = $request->initial_date;
+        $endDate   = $request->end_date;
+
+        $attendances = $user->events()
+                            ->wherePivot('attendance_date', '>=', $startDate)
+                            ->wherePivot('attendance_date', '<=', $endDate)
+                            ->wherePivot('event_id', $event->id)
+                            ->orderBy('attendance_date')
+                            ->get();
+
+        $fullAttendances = AttendanceReportService::buildReportCollection(
+            $attendances,
+            $user->shift,
+            (int) $event->daily_attendance,
+            $startDate,
+            $endDate,
+            $user->id
+        );
+
+        $response = [
+            'user_name'           => $user->name . ' ' . $user->last_name,
+            'shift_name'          => $user->shift->name,
+            'event_name'          => $event->name,
+            'department_name'     => $user->department->name,
+            'daily_attendance'    => $event->daily_attendance == 1 ? 'Si' : 'No',
+            'total_dedicated_time' => $fullAttendances->sum('time_dedicated'),
+            'total_overtime_minutes' => $fullAttendances->sum('overtime_minutes'), 
+        ];
+
+        if ($event->daily_attendance == 1) {
+            $allowance = $user->shift->monthly_late_allowance ?? 0;
+            $rawNonDedicated = $fullAttendances->sum('time_non_dedicated');
+            
+            $response['monthly_late_allowance'] = $allowance;
+            $response['raw_non_dedicated_time'] = $rawNonDedicated;
+            
+            // Si supera el umbral, se penaliza todo integro. Si no, se perdona (0)
+            $response['total_non_dedicated_time'] = ($rawNonDedicated > $allowance) ? $rawNonDedicated : 0;
+        }
+
+        $response['attendances'] = $fullAttendances;
+
+        return $this->successResponse($response, 'Individual report generated successfully');
+    }
+
+    /**
+     * Reporte masivo departamental. En modo diario filtra usuarios que superaron
+     * el umbral de tolerancia mensual; en modo evento lista todo el departamento.
+     */
+    public function generateReportUsers(MassAttendanceReportRequest $request)
+    {
+        $event     = Events::findOrFail($request->event_id);
+        $startDate = $request->initial_date;
+        $endDate   = $request->end_date;
+
+        // Eager Loading para evitar N+1
+        $usersQuery = Users::with(['shift', 'department', 'events' => function ($query) use ($startDate, $endDate, $event) {
             $query->wherePivot('attendance_date', '>=', $startDate)
                   ->wherePivot('attendance_date', '<=', $endDate)
                   ->wherePivot('event_id', $event->id)
                   ->orderBy('attendance_date');
-        }]);
+        }])->where('status', 'Activo');
 
         if ($request->department_id != 0) {
             $usersQuery->where('department_id', $request->department_id);
         }
-        
+
         $users = $usersQuery->get();
 
         if ($users->isEmpty()) {
             return $this->errorResponse('No users found', 404);
         }
-        
+
         $result = [];
 
         foreach ($users as $user) {
-            // El N+1 se soluciona porque $user->events ya está cargado
-            $attendances = $user->events;
-
-            // Delega la compilación a la capa Service
             $fullAttendances = AttendanceReportService::buildReportCollection(
-                $attendances, 
-                $user->shift, 
-                $event->daily_attendance, 
-                $startDate, 
+                $user->events,
+                $user->shift,
+                (int) $event->daily_attendance,
+                $startDate,
                 $endDate,
                 $user->id
             );
@@ -216,37 +220,43 @@ class AttendanceController extends Controller
             $totalDedicatedTime = $fullAttendances->sum('time_dedicated');
 
             if ($event->daily_attendance == 1) {
-                $totalNonDedicatedTime = $fullAttendances->sum('time_non_dedicated');  
-                
-                // Usamos la columna corregida ya que la migración se ejecutará
+                $totalNonDedicatedTime      = $fullAttendances->sum('time_non_dedicated');
                 $shift_monthly_late_allowance = $user->shift->monthly_late_allowance;
 
+                // Solo incluimos al usuario si superó el umbral de tolerancia
                 if ($totalNonDedicatedTime > $shift_monthly_late_allowance) {
                     $result[] = [
-                        'user_name' => $user->name . ' ' . $user->last_name,
-                        'shift_name' => $user->shift->name,
-                        'event_name' => $event->name,
-                        'department_name' => $user->department->name,
-                        'monthly_late_allowance' => $shift_monthly_late_allowance, 
-                        'daily_attendance' => 'Si',
-                        'total_non_dedicated_time' => $totalNonDedicatedTime,
-                        'total_dedicated_hours' => $totalDedicatedTime,
-                        'attendances' => $fullAttendances->filter(function ($att) {
+                        'user_name'              => $user->name . ' ' . $user->last_name,
+                        'shift_name'             => $user->shift->name,
+                        'event_name'             => $event->name,
+                        'department_name'        => $user->department->name,
+                        'daily_attendance'       => 'Si',
+                        'total_dedicated_time'   => $totalDedicatedTime,
+                        'total_overtime_minutes' => $fullAttendances->sum('overtime_minutes'),
+                        'monthly_late_allowance' => $shift_monthly_late_allowance,
+                        'raw_non_dedicated_time' => $totalNonDedicatedTime,
+                        'total_non_dedicated_time'=> $totalNonDedicatedTime, // Aquí siempre se cobra todo porque ya superó el umbral
+                        'attendances'            => $fullAttendances->filter(function ($att) {
                             return ($att['time_non_dedicated'] ?? 0) > 0;
-                        })->values()
+                        })->values(),
                     ];
                 }
             } else {
                 $result[] = [
-                    'daily_attendance' => 'No',
-                    'user_name' => $user->name . ' ' . $user->last_name,
-                    'department_name' => $user->department->name,
-                    'event_name' => $event->name,
-                    'total_dedicated_hours' => $totalDedicatedTime,
+                    'user_name'           => $user->name . ' ' . $user->last_name,
+                    'shift_name'          => $user->shift->name,
+                    'event_name'          => $event->name,
+                    'department_name'     => $user->department->name,
+                    'total_dedicated_time' => $totalDedicatedTime,
+                    'total_overtime_minutes' => $fullAttendances->sum('overtime_minutes'),
+                    'attendances'         => $fullAttendances,
                 ];
-            }                     
+            }
         }
 
-        return $this->successResponse($result, 'General report generated successfully');
+        return $this->successResponse($result, 'Mass report generated successfully');
     }
+
+    
+   
 }

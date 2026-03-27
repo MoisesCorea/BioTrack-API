@@ -19,6 +19,7 @@ class UpdateAdminRequest extends FormRequest
             'email' => 'required|string|max:255|unique:admins,email,' . $this->route('admin'),
             'alias' => 'required|string|max:50|unique:admins,alias,' . $this->route('admin'),
             'password' => 'nullable|string|min:8',
+            'rol_id' => 'sometimes|integer|exists:roles,id',    
         ];
     }
 }

@@ -16,7 +16,7 @@ class AdminController extends Controller
      */
     public function index()
     {
-        $users = Admins::all();
+        $users = Admins::with('roles')->get();
         return $this->successResponse($users);
     }
 
@@ -39,7 +39,7 @@ class AdminController extends Controller
     /**
      * Crea un nuevo administrador.
      */
-    public function store(\App\Http\Requests\StoreAdminRequest $request)
+ public function store(\App\Http\Requests\StoreAdminRequest $request)
     {
         $user = Admins::create([
             'name' => $request->name,
@@ -48,6 +48,13 @@ class AdminController extends Controller
             'alias' => $request->alias,
             'password' => Hash::make($request->password),
         ]); 
+        
+        if ($request->has('rol_id')) {
+            $role = \Spatie\Permission\Models\Role::find($request->rol_id);
+            if ($role) {
+                $user->assignRole($role);
+            }
+        }
     
         return $this->successResponse($user, 'User created successfully', 201);
     }
@@ -73,6 +80,13 @@ class AdminController extends Controller
         }
 
         $user->save();
+
+        if ($request->has('rol_id')) {
+            $role = \Spatie\Permission\Models\Role::find($request->rol_id);
+            if ($role) {
+                $user->syncRoles([$role->name]);
+            }
+        }
 
         return $this->successResponse($user, 'User updated successfully');
     }

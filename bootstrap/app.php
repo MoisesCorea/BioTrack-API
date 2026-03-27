@@ -14,10 +14,19 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
         $middleware->alias([
             'verify.rol' => \App\Http\Middleware\VerifyRol::class
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
-        //
+        $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, $request) {
+            if ($request->is('api/*')) {
+                return response()->json([
+                    'status'  => 'Error',
+                    'message' => 'Unauthenticated.',
+                    'data'    => null,
+                ], 401);
+            }
+        });
     })->create();

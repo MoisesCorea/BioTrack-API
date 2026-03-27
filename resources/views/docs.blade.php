@@ -183,7 +183,7 @@
             <a href="#users" class="nav-link">Usuarios</a>
             <a href="#attendance" class="nav-link">Asistencia</a>
             <a href="#justifications" class="nav-link">Justificaciones</a>
-            <a href="#roles" class="nav-link">Roles</a>
+            <a href="#permissions" class="nav-link">Permisos y Acceso</a>
         </div>
 
         <div class="nav-group">
@@ -235,16 +235,12 @@ console.log(data.token);</code></pre>
                             </div>
                             <div id="json" class="code-content">
 <pre><code>{
-  "message": "Login exitoso",
+  "message": "Login successful",
   "status": 200,
   "data": {
-    "user": {
-      "id": 1,
-      "name": "Administrador",
-      "email": "admin@test.com",
-      "role": "Admin"
-    },
-    "token": "1|p3r5on4l_4cc355_7ok3n_h3r3..."
+    "user_id": 1,
+    "access_token": "1|p3r5on4l_4cc355_7ok3n...",
+    "rol": "Admin"
   }
 }</code></pre>
                             </div>
@@ -307,12 +303,28 @@ console.log(data.token);</code></pre>
                 <h2>📝 Justificaciones</h2>
                 <p>Módulo para la aprobación de ausencias y carga de evidencia médica o personal.</p>
 
+            <section id="permissions">
+                <h2>🛡️ Niveles de Acceso (Permisos)</h2>
+                <p>Nuestra API utiliza una estructura RBAC (Role-Based Access Control) granular mediante permisos específicos vinculados a roles.</p>
+                
                 <div class="endpoint">
-                    <div class="endpoint-header">
-                        <span class="method-tag PATCH">PATCH</span>
-                        <span class="endpoint-path">/api/justifications/{id}/status</span>
-                    </div>
-                    <p>Cambia el estado de una justificación a 'Aprobado' o 'Rechazado'.</p>
+                    <h3 style="margin-top:0">Permisos de Visualización</h3>
+                    <p>Permiten la consulta de datos pero no su modificación:</p>
+                    <ul style="color: var(--text-dim); margin-left: 1.5rem; margin-bottom: 2rem;">
+                        <li><code>view_reports</code>: Acceso a reportes PDF y Excel.</li>
+                        <li><code>view_users</code>: Visualización de personal.</li>
+                        <li><code>view_events</code>: Lista de eventos y asistencias diarias.</li>
+                        <li><code>view_justifications</code>: Lista de permisos e incapacidades.</li>
+                    </ul>
+
+                    <h3>Permisos de Gestión</h3>
+                    <p>Permiten realizar operaciones CRUD (Crear, Editar, Borrar):</p>
+                    <ul style="color: var(--text-dim); margin-left: 1.5rem;">
+                        <li><code>manage_users</code>: Administración de personal.</li>
+                        <li><code>manage_admins</code>: Gestión de staff administrativo (Solo SuperAdmin).</li>
+                        <li><code>manage_events</code>: Control de eventos y escaneo.</li>
+                        <li><code>manage_justifications</code>: Aprobación/Rechazo de solicitudes.</li>
+                    </ul>
                 </div>
             </section>
 

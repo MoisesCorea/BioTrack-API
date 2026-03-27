@@ -53,4 +53,12 @@ class Admins extends Authenticatable
         ];
     }
 
+    protected $appends = ['rol_id'];
+
+    public function getRolIdAttribute()
+    {
+        $role = $this->roles->first();
+        return $role ? $role->id : null;
+    }
+
 }
